@@ -9,7 +9,9 @@ INPUT_FILENAME = f'{BASE_DIR}/lunch_scene.mp4'
 OUTPUT_FILENAME = f'{BASE_DIR}/output.mp4'
 
 KNOWN_FACES_PATH = 'known_faces.pkl'
+
 KNOWN_FACES = {}
+TOLERANCE = 0.6
 
 
 def get_known_faces():
@@ -41,16 +43,22 @@ def get_known_faces():
     return faces
 
 
-def resolve_face(face_encoding):
+def resolve_face(face_to_compare):
     """
-    TODO: The current comparison is bad. Compare against *all* the faces,
-    based on the average of the distances between faces or with a CNN.
-    :param face_encoding: A face encoding to compare with the known faces.
-    :return: The name of the detected face.
+    Compare the face with all the known faces.
+    Return the one with the lowest distance if it's below the tolerance.
+    TODO: Try out a neural network :D
     """
+    distance_averages = {}
     for name, encodings in KNOWN_FACES.items():
-        if any(face_recognition.compare_faces(encodings, face_encoding)):
-            return name
+        distances = face_recognition.face_distance(encodings, face_to_compare)
+        distance_averages[name] = sum(distances) / len(distances)
+
+    # Get the known face closest to the face to compare
+    closest_face = min(distance_averages.items(), key=lambda x: x[1])
+    # Only the distances under the tolerance threshold are considered matches
+    if closest_face[1] < TOLERANCE:
+        return closest_face[0]
     return '?'
 
 
@@ -71,25 +79,30 @@ def label_frame(frame, faces):
 
 
 def main():
-    # Open the input movie file
+    # Open the input video file
     input_video = cv2.VideoCapture(INPUT_FILENAME)
     total_frames = int(input_video.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    # # Create an output movie file (make sure resolution/frame rate matches input video!)
-    # fourcc = cv2.VideoWriter_fourcc(*'XVID')
-    # output_video = cv2.VideoWriter('output.avi', fourcc, 23.976, (640, 352))
+    # Create the output video file
+    # TODO: Grab the resolution and framerate with mediainfo
+    output_video = cv2.VideoWriter(
+        OUTPUT_FILENAME,
+        cv2.VideoWriter_fourcc(*'mp4v'),
+        23.976,
+        (640, 352),
+    )
 
-    frame_number = 0
+    counter = 0
 
     while True:
-        frame_number += 1
-        print(f'Processing frame #{frame_number} out of {total_frames}')
         # Grab a single frame of video
         ret, original_frame = input_video.read()
-
         # Quit when the input video file ends
         if not ret:
             break
+        counter += 1
+        if counter % 100 == 0:
+            print(f'Processing frame #{counter} out of {total_frames}')
 
         # Convert the image from BGR color (OpenCV) to RGB color (face_recognition)
         frame = original_frame[:, :, ::-1]
@@ -98,8 +111,9 @@ def main():
         face_locations = face_recognition.face_locations(frame)
         face_encodings = face_recognition.face_encodings(frame, face_locations)
 
-        # Label the frame
+        # Recognize the faces in the video
         face_names = [resolve_face(encoding) for encoding in face_encodings]
+        # Label the frame
         label_frame(original_frame, zip(face_locations, face_names))
 
         # Display the frame
@@ -108,9 +122,8 @@ def main():
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
-        # # Write the resulting image to the output video file
-        # print('Writing frame {} / {}'.format(frame_number, length))
-        # output_video.write(original_frame)
+        # Write the resulting image to the output video file
+        output_video.write(original_frame)
 
     print('All done!')
     input_video.release()

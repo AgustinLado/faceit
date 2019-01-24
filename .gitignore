@@ -1,2 +1,4 @@
 *.py[cod]
 .idea
+
+dataset/jurassic_park/output.mp4
